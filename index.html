@@ -262,6 +262,7 @@ animation: floatUp linear infinite;
 <div class="feedback" id="speakFeedback"></div>
 <div class="speakRow">
 <button class="btn" style="background:var(--orange)" id="speakListen">🔊 Listen</button>
+<button class="btn" style="background:var(--green)" id="judgeBtn" hidden>👍 Well said!</button>
 <button class="btn" style="background:var(--blue)" id="speakNext">Next ➡</button>
 </div>
 <div class="note" id="speakNote"></div>
@@ -380,7 +381,7 @@ if (T.kind === "col") return '<span class="blob" style="background:' + it.c + '"
 return it.e;
 }
 function wordOf(it) { return T.kind === "abc" ? it.word : it.w; }
-function learnSay(it) { return T.kind === "abc" ? it.w + ". " + it.w + " is for " + it.word + "." : it.w + ". " + sentence(it); }
+function learnSay(it) { return T.kind === "abc" ? it.w + " is for " + it.word + "." : it.w + ". " + sentence(it); }
 
 // ================= ÂM THANH =================
 var actx = null;
@@ -444,15 +445,32 @@ var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null, rec
 function listenOnce(onRes, onErr) {
 if (!SR) { onErr("nosupport"); return; }
 stopSpeak();
-var done = false; function res(a) { if (!done) { done = true; onRes(a); } } function err(e) { if (!done) { done = true; onErr(e); } }
+try { if (actx && actx.state === "running") actx.suspend(); } catch (x) {}
+var done = false, heard = [], silenceT = null, hardT = null;
+function finish() { clearTimeout(silenceT); clearTimeout(hardT); try { if (actx) actx.resume(); } catch (x) {} }
+function res(a) { if (!done) { done = true; finish(); onRes(a); } }
+function err(e) { if (!done) { done = true; finish(); if (heard.length) onRes(heard); else onErr(e); } }
+// Đợi giọng đọc dừng hẳn rồi mới mở micro (iPad cần vậy)
+setTimeout(function () {
+if (done) return;
 try {
-recog = new SR(); recog.lang = "en-US"; recog.interimResults = false; recog.maxAlternatives = 5; recog.continuous = false;
-recog.onresult = function (e) { var r = e.results[0], a = []; for (var i = 0; i < r.length; i++) a.push(r[i].transcript); res(a); };
+recog = new SR(); recog.lang = "en-US"; recog.interimResults = true; recog.maxAlternatives = 5; recog.continuous = false;
+recog.onresult = function (e) {
+var full = "", last = e.results[e.results.length - 1], alts = [];
+for (var i = 0; i < e.results.length; i++) full += e.results[i][0].transcript + " ";
+for (var k = 0; k < last.length; k++) alts.push(last[k].transcript);
+heard = [full.trim()].concat(alts);
+if (last.isFinal) { res(heard); return; }
+// iPad thường không tự kết thúc: im lặng 1,5 giây thì chấm luôn
+clearTimeout(silenceT);
+silenceT = setTimeout(function () { try { recog.stop(); } catch (x) {} res(heard); }, 1500);
+};
 recog.onerror = function (e) { err(e.error || "error"); };
-recog.onend = function () { err("nospeech"); };
+recog.onend = function () { setTimeout(function () { err("nospeech"); }, 300); };
 recog.start();
-setTimeout(function () { try { recog.stop(); } catch (x) {} }, 7000);
+hardT = setTimeout(function () { try { recog.stop(); } catch (x) {} setTimeout(function () { err("nospeech"); }, 900); }, 8000);
 } catch (e) { err("start"); }
+}, 400);
 }
 var HOMO = { to: "two", too: "two", for: "four", won: "one", ate: "eight", "4": "four", "2": "two", "8": "eight", tree: "three", sics: "six", "pin": "pink" };
 function norm(s) {
@@ -719,7 +737,13 @@ card.innerHTML = '<div class="flash" style="padding:8px"><div class="pic" style=
 speak("Say: " + wordOf(it) + "!");
 }
 sp.best = 0;
+$("judgeBtn").hidden = !!SR;
 }
+$("judgeBtn").addEventListener("click", function () {
+if (!sp) return; sp.best = 3;
+$("speakStars").textContent = "⭐⭐⭐"; var f = $("speakFeedback"); f.textContent = pick(PRAISE); f.className = "feedback ok";
+celebrate("🎤", f.textContent); sBig(); speak(f.textContent);
+});
 $("speakListen").addEventListener("click", function () { var it = sp.list[sp.i]; if (T.kind === "dlg") speak(it.q + " ... " + it.a.replace("…", ""), null); else speak(wordOf(it)); });
 $("speakBack").addEventListener("click", function () { stopSpeak(); try { if (recog) recog.abort(); } catch (x) {} sp = null; show("topic"); });
 $("speakNext").addEventListener("click", function () {
@@ -751,7 +775,9 @@ else { f.textContent = "Let's try again!"; f.className = "feedback bad"; sBad();
 }, function (e) {
 mic.classList.remove("on");
 var msg = e === "not-allowed" || e === "service-not-allowed" ? "🎤 Ask Mum or Dad to turn on the microphone." : e === "nosupport" ? "🎤 Speaking does not work here. Ask Mum or Dad." : "I can't hear you. Try again!";
-$("heard").textContent = msg;
+$("heard").textContent = msg; $("judgeBtn").hidden = false;
+var standalone = window.navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+$("speakNote").textContent = "Bố mẹ: nếu micro không nhận tiếng, hãy bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả, và bật Siri." + (standalone ? " Nếu vẫn không được, mở app bằng Safari (gõ địa chỉ trang) thay vì biểu tượng màn hình chính." : "") + " Trong lúc chờ, bố mẹ có thể bấm 👍 Well said! để chấm cho bé.";
 if (e === "not-allowed" || e === "service-not-allowed") $("speakNote").textContent = "Bố mẹ: cho phép Safari dùng micro (Cài đặt → Safari → Micro) và bật Siri (Cài đặt → Siri) để nhận giọng nói.";
 });
 });

@@ -1,0 +1,12 @@
+{
+  "name": "Bé Học Tiếng Anh",
+  "short_name": "Bé học tiếng Anh",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef4ff",
+  "theme_color": "#eef4ff",
+  "icons": [
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

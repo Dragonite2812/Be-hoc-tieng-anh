@@ -262,6 +262,7 @@ animation: floatUp linear infinite;
 <div class="feedback" id="speakFeedback"></div>
 <div class="speakRow">
 <button class="btn" style="background:var(--orange)" id="speakListen">🔊 Listen</button>
+<button class="btn" style="background:var(--purple)" id="myVoiceBtn" hidden>🔁 My voice</button>
 <button class="btn" style="background:var(--green)" id="judgeBtn" hidden>👍 Well said!</button>
 <button class="btn" style="background:var(--blue)" id="speakNext">Next ➡</button>
 </div>
@@ -454,7 +455,8 @@ function err(e) { if (!done) { done = true; finish(); if (heard.length) onRes(he
 setTimeout(function () {
 if (done) return;
 try {
-recog = new SR(); recog.lang = "en-US"; recog.interimResults = true; recog.maxAlternatives = 5; recog.continuous = false;
+var t0 = Date.now(), restarts = 0;
+recog = new SR(); recog.lang = "en-US"; recog.interimResults = true; recog.maxAlternatives = 5; recog.continuous = true;
 recog.onresult = function (e) {
 var full = "", last = e.results[e.results.length - 1], alts = [];
 for (var i = 0; i < e.results.length; i++) full += e.results[i][0].transcript + " ";
@@ -466,7 +468,11 @@ clearTimeout(silenceT);
 silenceT = setTimeout(function () { try { recog.stop(); } catch (x) {} res(heard); }, 1500);
 };
 recog.onerror = function (e) { err(e.error || "error"); };
-recog.onend = function () { setTimeout(function () { err("nospeech"); }, 300); };
+recog.onend = function () {
+// iPad hay tự tắt micro rất sớm khi bé chưa kịp nói: bật lại trong 7 giây đầu
+if (!done && !heard.length && Date.now() - t0 < 6500 && restarts < 4) { restarts++; try { recog.start(); return; } catch (x) {} }
+setTimeout(function () { err("nospeech"); }, 300);
+};
 recog.start();
 hardT = setTimeout(function () { try { recog.stop(); } catch (x) {} setTimeout(function () { err("nospeech"); }, 900); }, 8000);
 } catch (e) { err("start"); }
@@ -737,7 +743,7 @@ card.innerHTML = '<div class="flash" style="padding:8px"><div class="pic" style=
 speak("Say: " + wordOf(it) + "!");
 }
 sp.best = 0;
-$("judgeBtn").hidden = !!SR;
+$("judgeBtn").hidden = !recMode(); $("myVoiceBtn").hidden = true;
 }
 $("judgeBtn").addEventListener("click", function () {
 if (!sp) return; sp.best = 3;
@@ -757,13 +763,45 @@ var tot = sp.total; sp = null; show("end");
 if (tot >= 7) { sWin(); confetti(70, ["⭐","🎤","🎉","✨"]); }
 setTimeout(function () { speak(tot >= 7 ? "Great talking! You are a star!" : "Good try! Let's practise again!"); }, 600);
 });
+// Chế độ dự phòng: thu âm giọng bé rồi phát lại, bố mẹ chấm
+var srFails = 0, lastRecUrl = null;
+function recMode() { return !SR || srFails >= 2; }
+function recordOnce(done) {
+if (!navigator.mediaDevices || !window.MediaRecorder) { done(null); return; }
+stopSpeak(); try { if (actx) actx.suspend(); } catch (x) {}
+navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+var chunks = [], mr;
+try { mr = new MediaRecorder(stream); } catch (e) { stream.getTracks().forEach(function (t) { t.stop(); }); done(null); return; }
+mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+mr.onstop = function () {
+stream.getTracks().forEach(function (t) { t.stop(); });
+try { if (actx) actx.resume(); } catch (x) {}
+var blob = new Blob(chunks, { type: mr.mimeType || "audio/mp4" });
+if (lastRecUrl) URL.revokeObjectURL(lastRecUrl);
+lastRecUrl = URL.createObjectURL(blob); done(lastRecUrl);
+};
+mr.start(); setTimeout(function () { try { mr.stop(); } catch (x) {} }, 3500);
+}, function () { try { if (actx) actx.resume(); } catch (x) {} done(null); });
+}
+function playMine() { if (!lastRecUrl) return; try { var a = new Audio(lastRecUrl); a.play(); } catch (x) {} }
+$("myVoiceBtn").addEventListener("click", function () { playMine(); });
 $("micBtn").addEventListener("click", function () {
 ensureAudio(); if (!sp) return;
 var mic = this, it = sp.list[sp.i];
 if (mic.classList.contains("on")) { try { recog.stop(); } catch (x) {} return; }
+if (recMode()) {
+mic.classList.add("on"); $("heard").textContent = "🔴 Speak now!"; $("speakFeedback").textContent = "";
+recordOnce(function (url) {
+mic.classList.remove("on");
+if (!url) { $("heard").textContent = "🎤 Ask Mum or Dad to turn on the microphone."; $("judgeBtn").hidden = false; return; }
+$("heard").textContent = "Listen to your voice! 👂"; $("myVoiceBtn").hidden = false; $("judgeBtn").hidden = false;
+setTimeout(playMine, 300);
+});
+return;
+}
 mic.classList.add("on"); $("heard").textContent = "👂 I'm listening…"; $("speakFeedback").textContent = "";
 listenOnce(function (alts) {
-mic.classList.remove("on");
+mic.classList.remove("on"); srFails = 0;
 $("heard").textContent = "I heard: “" + alts[0] + "”";
 var sc = T.kind === "dlg" ? scoreKeys(it.keys, alts) : scoreWord(wordOf(it), alts);
 sp.best = Math.max(sp.best, sc);
@@ -776,8 +814,10 @@ else { f.textContent = "Let's try again!"; f.className = "feedback bad"; sBad();
 mic.classList.remove("on");
 var msg = e === "not-allowed" || e === "service-not-allowed" ? "🎤 Ask Mum or Dad to turn on the microphone." : e === "nosupport" ? "🎤 Speaking does not work here. Ask Mum or Dad." : "I can't hear you. Try again!";
 $("heard").textContent = msg; $("judgeBtn").hidden = false;
+if (e !== "not-allowed" && e !== "service-not-allowed") srFails++;
+if (recMode()) $("heard").textContent = "Let's record your voice! Tap 🎤 and speak.";
 var standalone = window.navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
-$("speakNote").textContent = "Bố mẹ: nếu micro không nhận tiếng, hãy bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả, và bật Siri." + (standalone ? " Nếu vẫn không được, mở app bằng Safari (gõ địa chỉ trang) thay vì biểu tượng màn hình chính." : "") + " Trong lúc chờ, bố mẹ có thể bấm 👍 Well said! để chấm cho bé.";
+$("speakNote").textContent = (recMode() ? "Bố mẹ: iPad không nhận dạng được giọng nên app chuyển sang chế độ thu âm: bé nói, app phát lại giọng bé để bé tự nghe, bố mẹ bấm 👍 Well said! để chấm. " : "") + "Để app tự chấm phát âm: bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả, và bật Siri." + (standalone ? " Nếu vẫn không được, mở app bằng Safari (gõ địa chỉ trang) thay vì biểu tượng màn hình chính." : "") + "";
 if (e === "not-allowed" || e === "service-not-allowed") $("speakNote").textContent = "Bố mẹ: cho phép Safari dùng micro (Cài đặt → Safari → Micro) và bật Siri (Cài đặt → Siri) để nhận giọng nói.";
 });
 });

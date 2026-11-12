@@ -1,4 +1,4 @@
-var CACHE = "be-hoc-tieng-anh-v3";
+var CACHE = "be-hoc-tieng-anh-v4";
 var FILES = ["./", "index.html", "manifest.json", "apple-touch-icon.png", "icon-512.png"];
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }));

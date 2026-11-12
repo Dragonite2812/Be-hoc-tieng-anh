@@ -727,6 +727,16 @@ var list = T.kind === "dlg" ? shuffle(dialogues()).slice(0, 5) : shuffle(T.items
 sp = { list: list, i: 0, total: 0 };
 $("speakNote").textContent = SR ? "" : "Thiết bị/trình duyệt này chưa hỗ trợ nhận giọng nói. Hãy mở app bằng Safari trên iPad (bật Siri trong Cài đặt).";
 show("speak"); renderSpeak();
+warmMic();
+}
+var micReady = false;
+function warmMic() {
+if (micReady || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
+micReady = true; st.getTracks().forEach(function (t) { t.stop(); });
+}, function (e) {
+$("speakNote").textContent = "Bố mẹ: app chưa được dùng micro. Vào Cài đặt → Safari → Micro → chọn Cho phép, rồi mở lại app.";
+});
 }
 function curTarget() { var it = sp.list[sp.i]; return T.kind === "dlg" ? it : it; }
 function renderSpeak() {
@@ -813,11 +823,11 @@ else { f.textContent = "Let's try again!"; f.className = "feedback bad"; sBad();
 }, function (e) {
 mic.classList.remove("on");
 var msg = e === "not-allowed" || e === "service-not-allowed" ? "🎤 Ask Mum or Dad to turn on the microphone." : e === "nosupport" ? "🎤 Speaking does not work here. Ask Mum or Dad." : "I can't hear you. Try again!";
-$("heard").textContent = msg; $("judgeBtn").hidden = false;
+$("heard").textContent = msg; $("judgeBtn").hidden = false; window.__lastMicErr = e;
 if (e !== "not-allowed" && e !== "service-not-allowed") srFails++;
 if (recMode()) $("heard").textContent = "Let's record your voice! Tap 🎤 and speak.";
 var standalone = window.navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
-$("speakNote").textContent = (recMode() ? "Bố mẹ: iPad không nhận dạng được giọng nên app chuyển sang chế độ thu âm: bé nói, app phát lại giọng bé để bé tự nghe, bố mẹ bấm 👍 Well said! để chấm. " : "") + "Để app tự chấm phát âm: bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả, và bật Siri." + (standalone ? " Nếu vẫn không được, mở app bằng Safari (gõ địa chỉ trang) thay vì biểu tượng màn hình chính." : "") + "";
+$("speakNote").textContent = (recMode() ? "Bố mẹ: iPad không nhận dạng được giọng nên app chuyển sang chế độ thu âm: bé nói, app phát lại giọng bé để bé tự nghe, bố mẹ bấm 👍 Well said! để chấm. " : "") + "Để app tự chấm phát âm: bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả, và bật Siri. (Mã lỗi: " + e + ")" + (standalone ? " Nếu vẫn không được, mở app bằng Safari (gõ địa chỉ trang) thay vì biểu tượng màn hình chính." : "") + "";
 if (e === "not-allowed" || e === "service-not-allowed") $("speakNote").textContent = "Bố mẹ: cho phép Safari dùng micro (Cài đặt → Safari → Micro) và bật Siri (Cài đặt → Siri) để nhận giọng nói.";
 });
 });
